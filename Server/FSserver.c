@@ -74,9 +74,9 @@ void processListFile(int cfd){
                 sprintf(clientId,"%d | (Client ID %d)\t\t",i,files[i].id);
 
 
-                listFile = (char*)realloc(listFile, oldLen + strlen(files[countFile].alias)+2*sizeof(char)+ strlen(clientId));
+                listFile = (char*)realloc(listFile, oldLen + strlen(files[i].alias)+2*sizeof(char)+ strlen(clientId));
                 strcat(listFile,clientId);
-                strcat(listFile,files[countFile].alias);
+                strcat(listFile,files[i].alias);
                 strcat(listFile,"\n");
                 free(clientId);clientId=NULL;
 //            }
@@ -138,16 +138,15 @@ void* ClientThread(void* arg)
     free(arg);
     arg = NULL;
 
-    char* welcome = (char*)calloc(1, sizeof(char)*1024);
+    int lenHelpMESS = helpMESS == NULL ? 0 : strlen(helpMESS);
+    char* welcome = (char*)calloc(1, sizeof(char)*1024 + lenHelpMESS);
     sprintf(welcome,formatWelcome,cfd);
+    if(helpMESS != NULL){
+        strcat(welcome,helpMESS);
+    }
     SendData(cfd,welcome, strlen(welcome));
     free(welcome);welcome=NULL;
 
-    if(helpMESS!=NULL){
-        SendData(cfd,helpMESS, strlen(helpMESS));
-    }else{
-        SendData(cfd,errorMess, strlen(errorMess));
-    }
     while (1){
         char buffer[1024] = { 0 };
         int r = RecvData(cfd,buffer, sizeof(buffer));
