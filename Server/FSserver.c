@@ -31,6 +31,7 @@ typedef struct _file{
     int id;
     char name[1024];
     char alias[1024];
+    char pass[1024];
 } file;
 file *files = NULL;
 
@@ -59,32 +60,60 @@ int RecvData(int fd, char* data, int maxlen)
     } while (tmp >= 0 && received < maxlen && tmp == blocksize);
     return received;
 }
-void processListFile(int cfd){
+void processListFile(int cfd, int page){
     char *listFile = NULL;
+
     pthread_mutex_lock(mutex);
+
+    //Tính tổng số trang
+    int countPage = 0;
+    if(countFile%10 == 0){
+        countPage = countFile/10;
+    } else{
+        countPage = countFile/10 + 1;
+    }
+    if( (page>countPage && countPage > 0 )|| page <= 0){
+        listFile = (char*)calloc(1024, 1);
+        strcat(listFile,"Page bạn nhập không hợp lệ! Hãy kiểm tra lại.");
+        goto SENDDATA;
+    }
+
     if(files!=NULL && countFile > 0){
         char *topbotListFile = "=============================================================================\n";
         listFile = (char *) calloc(1, strlen(topbotListFile)+sizeof(char));
         strcat(listFile,topbotListFile);
 
-        for(int i=0;i< countFile;i++){
-//            if(files[i].id != -1){
-                int oldLen = strlen(listFile);
-                char* clientId = (char*)calloc(1, sizeof(char)*50);
-                sprintf(clientId,"%d | (Client ID %d)\t\t",i,files[i].id);
+        int startFile = 10*(page-1);
+        int endFile = 10*page < countFile ? 10*page : countFile;
+        for(int i=startFile;i< endFile;i++){
+            int oldLen = strlen(listFile) < sizeof(listFile) ? sizeof(listFile) : strlen(listFile);
+            char* clientId = (char*)calloc(1024, 1);
+            sprintf(clientId,"%d | (Client ID %d)\t\t",i,files[i].id);
+            listFile = (char*)realloc(listFile, oldLen + strlen(files[i].alias)+ strlen(clientId)+2);
+            strcat(listFile,clientId);
+            strcat(listFile,files[i].alias);
 
+            if(files[i].id == cfd){
+                oldLen = strlen(listFile) < sizeof(listFile) ? sizeof(listFile) : strlen(listFile);
+                listFile = (char*)realloc(listFile, oldLen + strlen(" <-- YOU")+2);
+                strcat(listFile," <-- YOU");
+            }
 
-                listFile = (char*)realloc(listFile, oldLen + strlen(files[i].alias)+2*sizeof(char)+ strlen(clientId));
-                strcat(listFile,clientId);
-                strcat(listFile,files[i].alias);
-                strcat(listFile,"\n");
-                free(clientId);clientId=NULL;
-//            }
+            strcat(listFile,"\n");
+            free(clientId);clientId=NULL;
         }
-        int oldLen = strlen(listFile);
-        listFile = (char *) realloc(listFile,oldLen + strlen(topbotListFile)+sizeof(char));
+        int oldLen = strlen(listFile) < sizeof(listFile) ? sizeof(listFile) : strlen(listFile);
+
+        char* pageS = (char*) calloc(1024,1);
+        sprintf(pageS,"Page: %d/%d\n",page,countPage);
+
+        listFile = (char *) realloc(listFile,oldLen + strlen(topbotListFile) + strlen(pageS)+2);
+        strcat(listFile,pageS);
+        free(pageS);pageS=NULL;
         strcat(listFile,topbotListFile);
     }
+
+    SENDDATA:
     pthread_mutex_unlock(mutex);
     if(listFile != NULL && strlen(listFile)>0){
         SendData(cfd,listFile, strlen(listFile));
@@ -95,6 +124,13 @@ void processListFile(int cfd){
     }
 }
 void processShareFile(int cfd,char* filename){
+    char* alias = (char*)calloc(1024, 1);
+    if(strrchr(filename,'/') != NULL){
+        strcpy(alias,strrchr(filename,'/')+1);
+    } else{
+        strcpy(alias,filename);
+    }
+    //TODO: thêm password vào
     pthread_mutex_lock(mutex);
     int isExist = 0;
     int countFileSameName = 0; //Đếm số lượng file có cùng tên nhưng khác đường dẫn
@@ -102,21 +138,21 @@ void processShareFile(int cfd,char* filename){
         //Check file đã từng được share chưa
         if(files[i].id == cfd && strcmp(files[i].name,filename)==0){
             isExist = 1;
-        }else if(files[i].id == cfd && strcmp(files[i].alias,strrchr(filename,'/')+1)==0){
+        }else if(files[i].id == cfd && strcmp(files[i].alias,alias)==0){
             countFileSameName++;
         }
     }
     if(isExist == 0){
         int oldLen = sizeof(file)*countFile;
-        files = (file*)realloc(files, oldLen + 1*sizeof(file));
+        files = (file*)realloc(files, oldLen + 1*sizeof(file)+2);
         files[countFile].id = cfd;
         strcpy(files[countFile].name,filename);
         if(countFileSameName == 0){
-            strcpy(files[countFile].alias,strrchr(filename,'/')+1);
+            strcpy(files[countFile].alias,alias);
         } else{
-            strcpy(files[countFile].alias,strrchr(filename,'/')+1);
+            strcpy(files[countFile].alias,alias);
 
-            char* temp = (char*)calloc(1, sizeof(char)*1024);
+            char* temp = (char*)calloc(1024, 1);
             sprintf(temp,"_(%d)",countFileSameName);
 
             strcat(files[countFile].alias,temp);
@@ -129,7 +165,10 @@ void processShareFile(int cfd,char* filename){
         SendData(cfd,"Bạn đã share file này rồi!", strlen("Bạn đã share file này rồi!"));
     }
     pthread_mutex_unlock(mutex);
-
+    free(alias);
+    alias = NULL;
+}
+void processReqDownload(int cfd){
 
 }
 void* ClientThread(void* arg)
@@ -166,7 +205,12 @@ void* ClientThread(void* arg)
                     SendData(cfd,errorMess, strlen(errorMess));
                 }
             } else if(strncmp(buffer,"fs list",7) == 0){
-                processListFile(cfd);
+                if(strstr(buffer,"-p")!=NULL){
+                    int page = atoi(strstr(buffer,"-p")+3);
+                    processListFile(cfd,page);
+                } else{
+                    processListFile(cfd,1);
+                }
             } else if(strncmp(buffer,"fs share",8) == 0){
                 processShareFile(cfd,buffer+9);
             }
@@ -188,7 +232,7 @@ void* ClientThread(void* arg)
                             memmove(&files[i],&files[i+1],sizeof(file)*(countFile-i-1));
                             countFile--;
                             i--;
-                            files = (file*) realloc(files,countFile* sizeof(file));
+                            files = (file*) realloc(files,countFile* sizeof(file)+2);
                         }
                     }
                 }
@@ -221,7 +265,7 @@ int main() {
     SOCKADDR_IN saddr, caddr;
     int clen = sizeof(caddr);
     saddr.sin_family = AF_INET;
-    saddr.sin_port = htons(8888);
+    saddr.sin_port = htons(8889);
     saddr.sin_addr.s_addr = inet_addr("127.0.0.1");;
 
     if (bind(sfd, (SOCKADDR*)&saddr, sizeof(saddr)) == 0)

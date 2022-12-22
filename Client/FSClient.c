@@ -42,7 +42,7 @@ int main(){
     int cfd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
     SOCKADDR_IN saddr;
     saddr.sin_family = AF_INET;
-    saddr.sin_port = htons(8888);
+    saddr.sin_port = htons(8889);
     saddr.sin_addr.s_addr = inet_addr("127.0.0.1");
     int error = connect(cfd, (SOCKADDR*)&saddr, sizeof(saddr));
     if (error != -1)
@@ -62,20 +62,27 @@ int main(){
             {
                 printf("Disconnected!\n");
                 break;
-            }
-            if (strncmp(command, "fs share", 8) == 0)
+            } else if (strncmp(command, "fs share", 8) == 0)
             {
-//                printf("%s\n",command+9);
-                if(strncmp(command+9,"-dir",4)==0){
-
-                }else{
-                    FILE* f = fopen(command+9, "rb");
-                    if(f == NULL){
-                        printf("File không tồn tại! Hãy kiểm tra lại đường dẫn\n");
-                        goto NHAPLENH;
-                    } else{
-                        fclose(f);
+//                FILE* f = fopen(command+9, "rb");
+//                if(f == NULL){
+//                    printf("File không tồn tại! Hãy kiểm tra lại đường dẫn\n");
+//                    goto NHAPLENH;
+//                } else{
+//                    fclose(f);
+//                }
+            } else if(strncmp(command, "fs test", 7) == 0){
+                FILE* f = fopen("/home/monleak/Code/P2P-FileShare/TestCommand/test1","r");
+                if(f!=NULL){
+                    while(1){
+                        if(!fgets(command, sizeof(command),f)){
+                            break;
+                        }
+                        SendData(cfd,command, strlen(command));
+                        RecvData(cfd, buffer, sizeof(buffer));
                     }
+                    fclose(f);
+                    goto NHAPLENH;
                 }
             }
             SendData(cfd,command, strlen(command));

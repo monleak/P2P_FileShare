@@ -1,0 +1,7 @@
+----------------
+(malloc(): invalid next size (unsorted)) - Chính client share gọi fs list sẽ bị lỗi
+fs share dwadwad
+fs share dwafmwaklwa
+fs list
+(DONE)
+-----------------

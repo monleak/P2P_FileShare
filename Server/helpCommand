@@ -2,13 +2,9 @@
 ===========================[COMMAND LIST]=============================
 Usage: fs <command>
 
-list                        Lấy danh sách các file đang được công khai
--d <idClient> <filename>    Yêu cầu download file chỉ định
--accept <id request>        Đồng ý yêu cầu download file từ client khác
--reject <id request>        Từ chối yêu cầu download
 help                        Hiển thị hướng dẫn
-req                         Hiển thị danh sách các yêu cầu download
+list [-p <page>]            Lấy danh sách các file đang được share
+download <ID> [-p <pass>]   Yêu cầu download file
+share <path> [-p <pass>]    Share file với đường dẫn
 quit                        Ngắt kết nối với server
-share <path>                Share file với đường dẫn
-share -dir <directory>      Share toàn bộ file trong thư mục
 ======================================================================
