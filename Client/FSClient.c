@@ -51,10 +51,10 @@ int main(){
             char buffer[1000] = { 0 };
             RecvData(cfd, buffer, sizeof(buffer));
             printf("%s\n", buffer);
-
+            NHAPLENH:
             printf(">");
             char command[1000] = { 0 };
-            NHAPLENH: fgets(command, sizeof(command), stdin);
+            fgets(command, sizeof(command), stdin);
             while(command[strlen(command)-1] == '\n' || command[strlen(command)-1] == '\r'){
                 command[strlen(command)-1] = 0;
             }

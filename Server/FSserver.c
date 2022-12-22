@@ -30,6 +30,7 @@ pthread_mutex_t* mutex = NULL;
 typedef struct _file{
     int id;
     char name[1024];
+    char alias[1024];
 } file;
 file *files = NULL;
 
@@ -60,30 +61,31 @@ int RecvData(int fd, char* data, int maxlen)
 }
 void processListFile(int cfd){
     char *listFile = NULL;
-//    pthread_mutex_lock(mutex);
+    pthread_mutex_lock(mutex);
     if(files!=NULL && countFile > 0){
         char *topbotListFile = "=============================================================================\n";
-        listFile = (char *) realloc(listFile, strlen(topbotListFile)+sizeof(char));
+        listFile = (char *) calloc(1, strlen(topbotListFile)+sizeof(char));
         strcat(listFile,topbotListFile);
 
         for(int i=0;i< countFile;i++){
 //            if(files[i].id != -1){
-                int oldLen = listFile == NULL ? 0 : sizeof(listFile);
+                int oldLen = strlen(listFile);
                 char* clientId = (char*)calloc(1, sizeof(char)*50);
-                sprintf(clientId,"(Client ID %d) ",files[i].id);
-                listFile = (char*)realloc(listFile, oldLen + 1* sizeof(files[i].name)+10*sizeof(char)+ strlen(clientId));
+                sprintf(clientId,"%d | (Client ID %d)\t\t",i,files[i].id);
+
+
+                listFile = (char*)realloc(listFile, oldLen + strlen(files[countFile].alias)+2*sizeof(char)+ strlen(clientId));
                 strcat(listFile,clientId);
-                strcat(listFile,"\t\t");
-                strcat(listFile,files[i].name);
+                strcat(listFile,files[countFile].alias);
                 strcat(listFile,"\n");
                 free(clientId);clientId=NULL;
 //            }
         }
-        int oldLen = listFile == NULL ? 0 : sizeof(listFile);
+        int oldLen = strlen(listFile);
         listFile = (char *) realloc(listFile,oldLen + strlen(topbotListFile)+sizeof(char));
         strcat(listFile,topbotListFile);
     }
-//    pthread_mutex_unlock(mutex);
+    pthread_mutex_unlock(mutex);
     if(listFile != NULL && strlen(listFile)>0){
         SendData(cfd,listFile, strlen(listFile));
         free(listFile);
@@ -94,16 +96,41 @@ void processListFile(int cfd){
 }
 void processShareFile(int cfd,char* filename){
     pthread_mutex_lock(mutex);
+    int isExist = 0;
+    int countFileSameName = 0; //Đếm số lượng file có cùng tên nhưng khác đường dẫn
+    for(int i=0;i<countFile;i++){
+        //Check file đã từng được share chưa
+        if(files[i].id == cfd && strcmp(files[i].name,filename)==0){
+            isExist = 1;
+        }else if(files[i].id == cfd && strcmp(files[i].alias,strrchr(filename,'/')+1)==0){
+            countFileSameName++;
+        }
+    }
+    if(isExist == 0){
+        int oldLen = sizeof(file)*countFile;
+        files = (file*)realloc(files, oldLen + 1*sizeof(file));
+        files[countFile].id = cfd;
+        strcpy(files[countFile].name,filename);
+        if(countFileSameName == 0){
+            strcpy(files[countFile].alias,strrchr(filename,'/')+1);
+        } else{
+            strcpy(files[countFile].alias,strrchr(filename,'/')+1);
 
-    int oldLen = sizeof(file)*countFile;
-    files = (file*)realloc(files, oldLen + 1*sizeof(file));
-    files[countFile].id = cfd;
-    strcpy(files[countFile].name,filename);
-    countFile++;
+            char* temp = (char*)calloc(1, sizeof(char)*1024);
+            sprintf(temp,"_(%d)",countFileSameName);
 
+            strcat(files[countFile].alias,temp);
+            free(temp);
+            temp=NULL;
+        }
+        countFile++;
+        SendData(cfd,"Share file thành công!", strlen("Share file thành công!"));
+    } else{
+        SendData(cfd,"Bạn đã share file này rồi!", strlen("Bạn đã share file này rồi!"));
+    }
     pthread_mutex_unlock(mutex);
 
-    SendData(cfd,"Share file thành công!", strlen("Share file thành công!"));
+
 }
 void* ClientThread(void* arg)
 {
@@ -149,16 +176,25 @@ void* ClientThread(void* arg)
             }
         }else{
             printf("A client has disconnected (ID: %d)\n",cfd);
-            //TODO: fix core dump
-            if(files!=NULL){
+            pthread_mutex_lock(mutex);
+            if(files!=NULL){ //Xóa các file share của client vừa disconnect
                 for(int i=0;i<countFile;i++){
                     if(files[i].id == cfd){
-                        memcpy(files+i*sizeof(file),files+(i+1)*sizeof(file),sizeof(file)*(countFile-i-1));
-                        countFile--;
-                        i--;
+                        if(countFile == 1){
+                            free(files);
+                            files=NULL;
+                            countFile--;
+                            break;
+                        } else{
+                            memmove(&files[i],&files[i+1],sizeof(file)*(countFile-i-1));
+                            countFile--;
+                            i--;
+                            files = (file*) realloc(files,countFile* sizeof(file));
+                        }
                     }
                 }
             }
+            pthread_mutex_unlock(mutex);
             break;
         }
     }
