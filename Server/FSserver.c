@@ -128,7 +128,7 @@ void processListFile(int cfd, int page){
         SendData(cfd,"Không có file nào để hiển thị!", strlen("Không có file nào để hiển thị!"));
     }
 }
-void processShareFile(int cfd,char* filename){
+void processShareFile(int cfd,char* filename,char* pass){
     char* alias = (char*)calloc(1024, 1);
     if(strrchr(filename,'/') != NULL){
         strcpy(alias,strrchr(filename,'/')+1);
@@ -152,6 +152,7 @@ void processShareFile(int cfd,char* filename){
         files = (file*)realloc(files, oldLen + 1*sizeof(file)+2);
         files[countFile].id = cfd;
         strcpy(files[countFile].name,filename);
+        strcpy(files[countFile].pass,pass);
         if(countFileSameName == 0){
             strcpy(files[countFile].alias,alias);
         } else{
@@ -258,7 +259,16 @@ void* ClientThread(void* arg)
                     processListFile(cfd,1);
                 }
             } else if(strncmp(buffer,"fs share",8) == 0){
-                processShareFile(cfd,buffer+9);
+//                processShareFile(cfd,buffer+9);
+                if(strstr(buffer,"-p")!=NULL){
+                    char* filename = strtok(buffer+8, " ");
+                    char* pass = strstr(buffer,"-p")+3;
+                    processShareFile(cfd,filename,pass);
+                } else{
+                    char* filename = strtok(buffer+8, " ");
+                    char* pass = "";
+                    processShareFile(cfd,filename,pass);
+                }
             } else if(strncmp(buffer,"fs find",7) == 0){
                 processFindFile(cfd,buffer+8);
             }
