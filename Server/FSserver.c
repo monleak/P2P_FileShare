@@ -17,7 +17,8 @@
 #define INVALID_SOCKET -1
 typedef struct sockaddr_in SOCKADDR_IN;
 typedef struct sockaddr SOCKADDR;
-int countFile;
+int countFile = 0;
+int countClient = 0;
 
 char* helpMESS = NULL;
 char* formatWelcome = "Welcome to my tracking server (ID Client: %d)\n";
@@ -26,15 +27,19 @@ char* invalidCmd = "INVALID COMMAND!\n";
 
 pthread_mutex_t* mutex = NULL;
 
-//cấu trúc client để lưu trữ danh sách các tệp được chia sẻ bởi mỗi client
 typedef struct _file{
-    int id;
+    int id; //cfd client sở hữu
     char name[1024];
     char alias[1024];
     char pass[1024];
 } file;
 file *files = NULL;
 
+typedef struct _client{
+  int cfd;
+  SOCKADDR_IN caddr;
+} client;
+client* clients = NULL;
 
 int SendData(int fd, char* data, int len)
 {
@@ -47,7 +52,6 @@ int SendData(int fd, char* data, int len)
     } while (tmp >= 0 && sent < len);
     return sent;
 }
-
 int RecvData(int fd, char* data, int maxlen)
 {
     int received = 0;
@@ -60,6 +64,7 @@ int RecvData(int fd, char* data, int maxlen)
     } while (tmp >= 0 && received < maxlen && tmp == blocksize);
     return received;
 }
+
 void processListFile(int cfd, int page){
     char *listFile = NULL;
 
@@ -169,7 +174,48 @@ void processShareFile(int cfd,char* filename){
     alias = NULL;
 }
 void processReqDownload(int cfd){
+    //TODO:
+}
+void processFindFile(int cfd, char* filename){
+    char *listFile = NULL;
+    pthread_mutex_lock(mutex);
+    if(files!=NULL && countFile > 0){
+        char *topbotListFile = "=============================================================================\n";
+        listFile = (char *) calloc(1, strlen(topbotListFile)+sizeof(char));
+        strcat(listFile,topbotListFile);
 
+        for(int i=0;i<countFile;i++){
+            if(strstr(files[i].alias,filename)!=NULL){
+                int oldLen = strlen(listFile) < sizeof(listFile) ? sizeof(listFile) : strlen(listFile);
+                char* clientId = (char*)calloc(1024, 1);
+                sprintf(clientId,"%d | (Client ID %d)\t\t",i,files[i].id);
+                listFile = (char*)realloc(listFile, oldLen + strlen(files[i].alias)+ strlen(clientId)+2);
+                strcat(listFile,clientId);
+                strcat(listFile,files[i].alias);
+
+                if(files[i].id == cfd){
+                    oldLen = strlen(listFile) < sizeof(listFile) ? sizeof(listFile) : strlen(listFile);
+                    listFile = (char*)realloc(listFile, oldLen + strlen(" <-- YOU")+2);
+                    strcat(listFile," <-- YOU");
+                }
+
+                strcat(listFile,"\n");
+                free(clientId);clientId=NULL;
+            }
+        }
+        int oldLen = strlen(listFile) < sizeof(listFile) ? sizeof(listFile) : strlen(listFile);
+        listFile = (char *) realloc(listFile,oldLen + strlen(topbotListFile) +2);
+        strcat(listFile,topbotListFile);
+    }
+    SENDDATA:
+    pthread_mutex_unlock(mutex);
+    if(listFile != NULL && strlen(listFile)>0){
+        SendData(cfd,listFile, strlen(listFile));
+        free(listFile);
+        listFile=NULL;
+    }else{
+        SendData(cfd,"Không tìm được file nào!", strlen("Không tìm được file nào!"));
+    }
 }
 void* ClientThread(void* arg)
 {
@@ -213,6 +259,8 @@ void* ClientThread(void* arg)
                 }
             } else if(strncmp(buffer,"fs share",8) == 0){
                 processShareFile(cfd,buffer+9);
+            } else if(strncmp(buffer,"fs find",7) == 0){
+                processFindFile(cfd,buffer+8);
             }
             else{
                 SendData(cfd,invalidCmd, strlen(invalidCmd));
@@ -233,6 +281,23 @@ void* ClientThread(void* arg)
                             countFile--;
                             i--;
                             files = (file*) realloc(files,countFile* sizeof(file)+2);
+                        }
+                    }
+                }
+            }
+            if(clients!=NULL){ //Xóa thông tin client trong danh sách
+                for(int i=0;i<countClient;i++){
+                    if(clients[i].cfd == cfd){
+                        if(countClient == 1){
+                            free(clients);
+                            clients=NULL;
+                            countClient--;
+                            break;
+                        } else{
+                            memmove(&clients[i],&clients[i+1],sizeof(client)*(countClient-i-1));
+                            countClient--;
+                            i--;
+                            clients = (client *) realloc(clients,countClient* sizeof(client)+2);
                         }
                     }
                 }
@@ -266,7 +331,7 @@ int main() {
     int clen = sizeof(caddr);
     saddr.sin_family = AF_INET;
     saddr.sin_port = htons(8889);
-    saddr.sin_addr.s_addr = inet_addr("127.0.0.1");;
+    saddr.sin_addr.s_addr = inet_addr("127.0.0.1");
 
     if (bind(sfd, (SOCKADDR*)&saddr, sizeof(saddr)) == 0)
     {
@@ -277,6 +342,12 @@ int main() {
             if (cfd != INVALID_SOCKET)
             {
                 printf("New client connected! (ID: %d)\n",cfd);
+                int oldSize = clients == NULL ? 0 : sizeof(clients);
+                clients = (client*) realloc(clients,oldSize + sizeof(client));
+                clients[countClient].cfd = cfd;
+                clients[countClient].caddr = caddr;
+                countClient++;
+
                 pthread_t tid = 0;
                 int* arg = (int*)calloc(1, sizeof(int));
                 *arg = cfd;
@@ -292,5 +363,6 @@ int main() {
 
     pthread_mutex_destroy(mutex);
     free(mutex);
+    close(sfd);
     return 0;
 }

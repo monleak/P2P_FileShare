@@ -4,6 +4,7 @@ Usage: fs <command>
 
 help                        Hiển thị hướng dẫn
 list [-p <page>]            Lấy danh sách các file đang được share
+find <filename>             Tìm kiếm file theo tên
 download <ID> [-p <pass>]   Yêu cầu download file
 share <path> [-p <pass>]    Share file với đường dẫn
 quit                        Ngắt kết nối với server

@@ -8,10 +8,13 @@
 #include <sys/socket.h>
 #include <unistd.h>
 #include <stdlib.h>
+#include <pthread.h>
 
 #define INVALID_SOCKET -1
 typedef struct sockaddr_in SOCKADDR_IN;
 typedef struct sockaddr SOCKADDR;
+
+int P2Pfd = -1; //socket P2P
 
 int SendData(int fd, char* data, int len)
 {
@@ -37,7 +40,12 @@ int RecvData(int fd, char* data, int maxlen)
     } while (tmp >= 0 && received < maxlen && tmp == blocksize);
     return received;
 }
+void* FileShareThread(){
 
+}
+void* P2PThread(void* arg){
+
+}
 int main(){
     int cfd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
     SOCKADDR_IN saddr;
@@ -64,13 +72,13 @@ int main(){
                 break;
             } else if (strncmp(command, "fs share", 8) == 0)
             {
-//                FILE* f = fopen(command+9, "rb");
-//                if(f == NULL){
-//                    printf("File không tồn tại! Hãy kiểm tra lại đường dẫn\n");
-//                    goto NHAPLENH;
-//                } else{
-//                    fclose(f);
-//                }
+                FILE* f = fopen(command+9, "rb");
+                if(f == NULL){
+                    printf("File không tồn tại! Hãy kiểm tra lại đường dẫn\n");
+                    goto NHAPLENH;
+                } else{
+                    fclose(f);
+                }
             } else if(strncmp(command, "fs test", 7) == 0){
                 FILE* f = fopen("/home/monleak/Code/P2P-FileShare/TestCommand/test1","r");
                 if(f!=NULL){
