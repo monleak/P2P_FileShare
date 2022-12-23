@@ -38,6 +38,7 @@ file *files = NULL;
 typedef struct _client{
   int cfd;
   SOCKADDR_IN caddr;
+  int port;
 } client;
 client* clients = NULL;
 
@@ -135,7 +136,6 @@ void processShareFile(int cfd,char* filename,char* pass){
     } else{
         strcpy(alias,filename);
     }
-    //TODO: thêm password vào
     pthread_mutex_lock(mutex);
     int isExist = 0;
     int countFileSameName = 0; //Đếm số lượng file có cùng tên nhưng khác đường dẫn
@@ -320,6 +320,7 @@ void* ClientThread(void* arg)
 }
 
 int main() {
+    //TODO: Thêm log để ghi loại hoạt động của server
     mutex = (pthread_mutex_t*)calloc(1, sizeof(pthread_mutex_t));
     pthread_mutex_init(mutex, NULL);
 
@@ -352,11 +353,16 @@ int main() {
             if (cfd != INVALID_SOCKET)
             {
                 printf("New client connected! (ID: %d)\n",cfd);
+                char* port = (char *) calloc(1024,1);
+                RecvData(cfd,port, sizeof(port));
+
                 int oldSize = clients == NULL ? 0 : sizeof(clients);
                 clients = (client*) realloc(clients,oldSize + sizeof(client));
                 clients[countClient].cfd = cfd;
                 clients[countClient].caddr = caddr;
+                clients[countClient].port = atoi(port);
                 countClient++;
+                free(port);port=NULL;
 
                 pthread_t tid = 0;
                 int* arg = (int*)calloc(1, sizeof(int));
