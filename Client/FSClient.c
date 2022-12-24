@@ -17,6 +17,7 @@ typedef struct sockaddr SOCKADDR;
 int P2Pfd = -1; //socket P2P
 int checkPORT = 0;
 int countFile = 0;
+int countReq = 0;
 char* dirDownload = "";
 
 typedef struct _file{
@@ -24,6 +25,11 @@ typedef struct _file{
     char pass[50]; //Mật khẩu của file
 } file;
 file *files = NULL;
+
+typedef struct _reqDownload{
+    char code[20]; //mã xác minh
+} reqDownload;
+reqDownload* reqDownloads;
 
 int SendData(int fd, char* data, unsigned long len)
 {
@@ -49,7 +55,26 @@ int RecvData(int fd, char* data, unsigned long maxlen)
     } while (tmp >= 0 && received < maxlen && tmp == blocksize);
     return received;
 }
-void processSendFile(char* filename, int addr, int port){
+
+char *randstring(size_t length) {
+    static char charset[] = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789,.-#'?!";
+    char *randomString = NULL;
+    srand(time(NULL));
+    if (length) {
+        randomString = (char *)malloc(sizeof(char) * (length +1));
+        if (randomString) {
+            for (int n = 0;n < length;n++) {
+                int key = rand() % (int)(sizeof(charset) -1);
+                randomString[n] = charset[key];
+            }
+
+            randomString[length] = '\0';
+        }
+    }
+    return randomString;
+}
+
+void processSendFile(char* filename, int addr, int port,char* randCode){
     int sendFile_socket = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
     SOCKADDR_IN saddr;
     saddr.sin_family = AF_INET;
@@ -67,33 +92,28 @@ void processSendFile(char* filename, int addr, int port){
             fread(data, 1, size, f);
             fclose(f);
 
-            char header[1024];
+            char* header = (char*) calloc(1024,1);
             char* alias = (char*)calloc(1024, 1);
             if(strrchr(filename,'/') != NULL){
                 strcpy(alias,strrchr(filename,'/')+1);
             } else{
                 strcpy(alias,filename);
             }
-            sprintf(header, "FILE %s %ld\n", alias, size);
+            sprintf(header, "FILE %s %ld %s\n", alias, size,randCode);
             SendData(sendFile_socket,header, strlen(header));
-//            RecvData(sendFile_socket,header,sizeof(header));
+
+            RecvData(sendFile_socket,header, sizeof(header));
 
             SendData(sendFile_socket,data, strlen(data));
-            free(data);
-            data = NULL;
+            free(data);data = NULL;
+            free(header);header=NULL;
+            free(alias);alias=NULL;
         }
     }
 }
-void processRecvFile(int cfd, char* buffer){
-    char* filename = (char*) calloc(200,1);
-    char* size = (char*) calloc(50,1);
-    strtok(buffer+4+1, " ");
-    sprintf(filename,"%s",buffer+4+1);
-    strtok(buffer+4+1+ strlen(filename)+1, "\n");
-    sprintf(size,"%s",buffer+4+1+ strlen(filename)+1);
-
-    char* data = (char *) calloc(atoi(size),1);
-    sprintf(data,"%s",buffer+4+1+ strlen(filename)+1+ strlen(size)+1);
+void processRecvFile(int cfd, char* filename, unsigned long size){
+    char* data = (char *) calloc(size,1);
+    RecvData(cfd,data, sizeof(data));
     int countFileSameName = 0;
     char* nameFile = (char*) calloc(1024,1);
     strcpy(nameFile,filename);
@@ -109,9 +129,8 @@ void processRecvFile(int cfd, char* buffer){
         fputs(data,f);
         fclose(f);
     }
-    free(filename);filename=NULL;
-    free(size);size=NULL;
     free(data);data=NULL;
+    free(nameFile);nameFile=NULL;
 }
 void* FileShareThread(void* arg){
     int cfd = *((int*)arg);
@@ -120,18 +139,18 @@ void* FileShareThread(void* arg){
 
     char buffer[1024] = { 0 };
     int r = RecvData(cfd,buffer, sizeof(buffer));
+    SendData(cfd,buffer, strlen(buffer));
     if (r > 0){
         /* Format các gói tin gửi đến
-         * Yêu cầu truyền file đến địa chỉ: SENDTO <filename> <pass> <addr> <port>
-         * Header của file gửi đến: FILE <filename> <size>
+         * Yêu cầu truyền file đến địa chỉ: SENDTO <filename> <pass> <addr> <port> <randCode>
+         * Header của file gửi đến: FILE <filename> <size> <randCode>
          */
         if(strncmp(buffer,"SENDTO",6)==0){
-            //TODO: kiểm tra lại hàm strtok (https://www.educative.io/answers/splitting-a-string-using-strtok-in-c)
-
             char* filename = (char*) calloc(200,1);
             char* pass = (char*) calloc(50,1);
             char* addr = (char*) calloc(100,1);
             char* port = (char*) calloc(100,1);
+            char* randCode = (char*) calloc(25,1);
             strtok(buffer+6+1, " ");
             sprintf(filename,"%s",buffer+6+1);
             strtok(buffer+6+1+ strlen(filename)+1, " ");
@@ -140,6 +159,8 @@ void* FileShareThread(void* arg){
             sprintf(addr,"%s",buffer+6+1+ strlen(filename)+1+ strlen(pass)+1);
             strtok(buffer+6+1+ strlen(filename)+1+ strlen(pass)+1+ strlen(addr)+1, " ");
             sprintf(port,"%s",buffer+6+1+ strlen(filename)+1+ strlen(pass)+1+ strlen(addr)+1);
+            strtok(buffer+6+1+ strlen(filename)+1+ strlen(pass)+1+ strlen(addr)+1+ strlen(port)+1, " ");
+            sprintf(randCode,"%s",buffer+6+1+ strlen(filename)+1+ strlen(pass)+1+ strlen(addr)+1+ strlen(port)+1);
             int check = 0;
             for(int i=0;i<countFile;i++){
                 if(strcmp(files[i].name,filename) == 0 && strcmp(files[i].pass,pass) == 0){
@@ -148,14 +169,48 @@ void* FileShareThread(void* arg){
                 }
             }
             if(check==1){
-                processSendFile(filename,atoi(addr),atoi(port));
+                processSendFile(filename,atoi(addr),atoi(port),randCode);
             }
             free(filename);filename=NULL;
             free(pass);pass=NULL;
             free(addr);addr=NULL;
             free(port);port=NULL;
+            free(randCode);randCode=NULL;
         } else if(strncmp(buffer,"FILE",4)==0){
-            processRecvFile(cfd,buffer);
+            char* filename = (char*) calloc(200,1);
+            char* size = (char*) calloc(50,1);
+            char* randCode = (char*) calloc(25,1);
+            strtok(buffer+4+1, " ");
+            sprintf(filename,"%s",buffer+4+1);
+            strtok(buffer+4+1+ strlen(filename)+1, " ");
+            sprintf(size,"%s",buffer+4+1+ strlen(filename)+1);
+            strtok(buffer+4+1+ strlen(filename)+1+ strlen(size)+1, "\n");
+            sprintf(randCode,"%s",buffer+4+1+ strlen(filename)+1+ strlen(size)+1);
+
+            int check=0;
+            for(int i=0;i<countReq;i++){
+                if(strncmp(reqDownloads[i].code,randCode,19)==0){
+                    //xóa req trong list
+                    check=1;
+                    if(countReq == 1){
+                        free(reqDownloads);
+                        reqDownloads=NULL;
+                        countReq--;
+                        break;
+                    } else{
+                        memmove(&reqDownloads[i],&reqDownloads[i+1],sizeof(reqDownload)*(countReq-i-1));
+                        countReq--;
+                        reqDownloads = (reqDownload *) realloc(reqDownloads,countReq* sizeof(reqDownload)+2);
+                    }
+                    break;
+                }
+            }
+            if(check == 1){
+                processRecvFile(cfd,filename,atoi(size));
+            }
+            free(filename);filename=NULL;
+            free(size);size=NULL;
+            free(randCode);randCode=NULL;
         }
     }
     close(cfd);
@@ -270,6 +325,38 @@ int main(int argc, char *argv[]){
                     fclose(f);
                     goto NHAPLENH;
                 }
+            } else if(strncmp(command, "fs download", 11) == 0){
+                while (command[strlen(command)-1] == '\n'){
+                    command[strlen(command)-1] = 0;
+                }
+                strcat(command," ");
+                char* randCode = randstring(19);
+                strcat(command,randCode);
+
+                unsigned long oldSize = sizeof(reqDownload)*countReq;
+                reqDownloads = (reqDownload *) realloc(reqDownloads,oldSize + sizeof(reqDownload));
+                strcpy(reqDownloads[countReq].code,randCode);
+                countReq++;
+
+                free(randCode);randCode=NULL;
+
+                SendData(cfd,command, strlen(command));
+                char* resDownload = (char*) calloc(1024,1);
+                RecvData(cfd, resDownload, sizeof(resDownload));
+                printf("%s\n", resDownload);
+                if(strncmp(resDownload,"Đã gửi yêu cầu tới máy chưa file!", strlen("Đã gửi yêu cầu tới máy chưa file!")) != 0){
+                    //Yêu cầu download bị lỗi (sai mật khẩu, sai ID,...)
+                    if(countReq == 1){
+                        free(reqDownloads);
+                        reqDownloads=NULL;
+                        countReq--;
+                    } else{
+                        countReq--;
+                        reqDownloads = (reqDownload*) realloc(reqDownloads,countReq * sizeof(reqDownload)+2);
+                    }
+                }
+                free(resDownload);resDownload=NULL;
+                goto NHAPLENH;
             }
             SendData(cfd,command, strlen(command));
         }

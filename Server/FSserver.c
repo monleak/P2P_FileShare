@@ -181,10 +181,14 @@ void processShareFile(int cfd,char* filename,char* pass){
     free(alias);
     alias = NULL;
 }
-void processReqDownload(int cfd, int id,char* pass){
+void processReqDownload(int cfd, int id,char* pass, char* randCode){
     //TODO:
     if(id > countFile-1){
         SendData(cfd,"ID File yêu cầu download không tồn tại!", strlen("ID File yêu cầu download không tồn tại!"));
+        goto END;
+    }
+    if(files[id].id == cfd){
+        SendData(cfd,"File yêu cầu nằm trên máy của bạn!", strlen("File yêu cầu nằm trên máy của bạn!"));
         goto END;
     }
     if(strcmp(files[id].pass,pass) == 0){
@@ -207,9 +211,9 @@ void processReqDownload(int cfd, int id,char* pass){
                 break;
             }
         }
-        char* formatMESS = "SENDTO %s %s %u %d";
+        char* formatMESS = "SENDTO %s %s %u %d %s";
         char* mess = (char *) calloc(1024,1);
-        sprintf(mess,formatMESS,filename,pass,reqaddr,reqport);
+        sprintf(mess,formatMESS,filename,pass,reqaddr,reqport,randCode);
 
         //Kết nối đến kênh p2p của client
         int cp2p = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
@@ -330,11 +334,13 @@ void* ClientThread(void* arg)
                     // fs download <id> -p <pass>
                     char* id = strtok(buffer+11, " ");
                     char* pass = strtok(buffer+11+1+ strlen(id)+3, " ");
-                    processReqDownload(cfd, atoi(id),pass);
+                    char* randCode = strtok(buffer+11+1+ strlen(id)+3+ strlen(pass)+2, " ");
+                    processReqDownload(cfd, atoi(id),pass,randCode);
                 } else{
                     char* id = strtok(buffer+11, " ");
                     char* pass = "****";
-                    processReqDownload(cfd, atoi(id),pass);
+                    char* randCode = strtok(buffer+11+1+ strlen(id)+1, " ");
+                    processReqDownload(cfd, atoi(id),pass,randCode);
                 }
             }
             else{
