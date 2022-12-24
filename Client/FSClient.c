@@ -25,7 +25,7 @@ typedef struct _file{
 } file;
 file *files = NULL;
 
-int SendData(int fd, char* data, long int len)
+int SendData(int fd, char* data, unsigned long len)
 {
     int sent = 0;
     int tmp = 0;
@@ -37,7 +37,7 @@ int SendData(int fd, char* data, long int len)
     return sent;
 }
 
-int RecvData(int fd, char* data, long int maxlen)
+int RecvData(int fd, char* data, unsigned long maxlen)
 {
     int received = 0;
     int blocksize = 1024;
@@ -61,7 +61,7 @@ void processSendFile(char* filename, int addr, int port){
         if (f != NULL)
         {
             fseek(f, 0, SEEK_END);
-            int size = ftell(f);
+            long size = ftell(f);
             fseek(f, 0, SEEK_SET);
             char* data = (char*)calloc(size, 1);
             fread(data, 1, size, f);
@@ -74,7 +74,7 @@ void processSendFile(char* filename, int addr, int port){
             } else{
                 strcpy(alias,filename);
             }
-            sprintf(header, "FILE %s %d\n", alias, size);
+            sprintf(header, "FILE %s %ld\n", alias, size);
             SendData(sendFile_socket,header, strlen(header));
 //            RecvData(sendFile_socket,header,sizeof(header));
 
@@ -233,13 +233,15 @@ int main(int argc, char *argv[]){
                 break;
             } else if (strncmp(command, "fs share", 8) == 0)
             {
+                char* cloneCommand = (char *) calloc(1024,1);
+                strcpy(cloneCommand,command);
                 char* filename = NULL;
                 char* pass = NULL;
-                if(strstr(command,"-p")!=NULL){
-                    filename = strtok(command+8, " ");
-                    pass = strtok(command+8+1+ strlen(filename)+3, " ");
+                if(strstr(cloneCommand,"-p")!=NULL){
+                    filename = strtok(cloneCommand+8, " ");
+                    pass = strtok(cloneCommand+8+1+ strlen(filename)+3, " ");
                 } else{
-                    filename = strtok(command+8, " ");
+                    filename = strtok(cloneCommand+8, " ");
                     pass = "****";
                 }
 
@@ -249,11 +251,12 @@ int main(int argc, char *argv[]){
                     printf("File không tồn tại! Hãy kiểm tra lại đường dẫn\n");
                     goto NHAPLENH;
                 }
-                int oldSize = sizeof(file)*countFile;
+                unsigned long oldSize = sizeof(file)*countFile;
                 files = (file*) realloc(files,oldSize + sizeof(file));
                 strcpy(files[countFile].name,filename);
                 strcpy(files[countFile].pass,pass);
                 countFile++;
+                free(cloneCommand);cloneCommand=NULL;
             } else if(strncmp(command, "fs test", 7) == 0){
                 FILE* f = fopen("/home/monleak/Code/P2P-FileShare/TestCommand/test1","r");
                 if(f!=NULL){
