@@ -29,15 +29,15 @@ pthread_mutex_t* mutex = NULL;
 
 typedef struct _file{
     int id; //cfd client sở hữu
-    char name[1024];
-    char alias[1024];
-    char pass[1024];
+    char name[200];
+    char alias[100];
+    char pass[50];
 } file;
 file *files = NULL;
 
 typedef struct _client{
   int cfd;
-  SOCKADDR_IN caddr;
+  uint32_t addr;
   int port;
 } client;
 client* clients = NULL;
@@ -140,12 +140,19 @@ void processShareFile(int cfd,char* filename,char* pass){
     int isExist = 0;
     int countFileSameName = 0; //Đếm số lượng file có cùng tên nhưng khác đường dẫn
     for(int i=0;i<countFile;i++){
+        char* alias1 = (char*)calloc(1024, 1);
+        if(strrchr(files[i].name,'/') != NULL){
+            strcpy(alias1,strrchr(files[i].name,'/')+1);
+        } else{
+            strcpy(alias1,files[i].name);
+        }
         //Check file đã từng được share chưa
         if(files[i].id == cfd && strcmp(files[i].name,filename)==0){
             isExist = 1;
-        }else if(files[i].id == cfd && strcmp(files[i].alias,alias)==0){
+        }else if(files[i].id == cfd && strcmp(alias1,alias)==0){
             countFileSameName++;
         }
+        free(alias1);
     }
     if(isExist == 0){
         int oldLen = sizeof(file)*countFile;
@@ -174,8 +181,54 @@ void processShareFile(int cfd,char* filename,char* pass){
     free(alias);
     alias = NULL;
 }
-void processReqDownload(int cfd){
+void processReqDownload(int cfd, int id,char* pass){
     //TODO:
+    if(id > countFile-1){
+        SendData(cfd,"ID File yêu cầu download không tồn tại!", strlen("ID File yêu cầu download không tồn tại!"));
+        goto END;
+    }
+    if(strcmp(files[id].pass,pass) == 0){
+        int idclient = files[id].id;
+        char* filename = (char*) calloc(1024,1);
+        strcpy(filename,files[id].name);
+        uint32_t addr=0; //địa chỉ máy chưa file
+        int port=0; //port máy chứa file
+        uint32_t reqaddr=0; //địa chỉ máy yêu cầu
+        int reqport=0; //port máy yêu cầu
+        for(int i=0;i<countClient;i++){
+            if(clients[i].cfd == idclient){
+                addr = clients[i].addr;
+                port = clients[i].port;
+            } else if(clients[i].cfd == cfd){
+                reqaddr = clients[i].addr;
+                reqport = clients[i].port;
+            }
+            if(addr != 0 && reqaddr != 0){
+                break;
+            }
+        }
+        char* formatMESS = "SENDTO %s %s %u %d";
+        char* mess = (char *) calloc(1024,1);
+        sprintf(mess,formatMESS,filename,pass,reqaddr,reqport);
+
+        //Kết nối đến kênh p2p của client
+        int cp2p = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+        SOCKADDR_IN p2paddr;
+        p2paddr.sin_family = AF_INET;
+        p2paddr.sin_port = htons(port);
+        p2paddr.sin_addr.s_addr = addr;
+        int error = connect(cp2p, (SOCKADDR*)&p2paddr, sizeof(p2paddr));
+        if (error != -1){
+            SendData(cp2p,mess, strlen(mess));
+        }
+        close(cp2p);
+        free(filename);filename=NULL;
+        free(mess);mess=NULL;
+        SendData(cfd,"Đã gửi yêu cầu tới máy chưa file!", strlen("Đã gửi yêu cầu tới máy chưa file!"));
+    } else{
+        SendData(cfd,"SAI MẬT KHẨU!!!", strlen("SAI MẬT KHẨU!!!"));
+    }
+    END:
 }
 void processFindFile(int cfd, char* filename){
     char *listFile = NULL;
@@ -261,16 +314,28 @@ void* ClientThread(void* arg)
             } else if(strncmp(buffer,"fs share",8) == 0){
 //                processShareFile(cfd,buffer+9);
                 if(strstr(buffer,"-p")!=NULL){
+                    // fs share <filename> -p <pass>
                     char* filename = strtok(buffer+8, " ");
-                    char* pass = strstr(buffer,"-p")+3;
+                    char* pass = strtok(buffer+8+1+ strlen(filename)+3, " ");
                     processShareFile(cfd,filename,pass);
                 } else{
                     char* filename = strtok(buffer+8, " ");
-                    char* pass = "";
+                    char* pass = "****";
                     processShareFile(cfd,filename,pass);
                 }
             } else if(strncmp(buffer,"fs find",7) == 0){
                 processFindFile(cfd,buffer+8);
+            } else if(strncmp(buffer,"fs download",11) == 0){
+                if(strstr(buffer,"-p")!=NULL){
+                    // fs download <id> -p <pass>
+                    char* id = strtok(buffer+11, " ");
+                    char* pass = strtok(buffer+11+1+ strlen(id)+3, " ");
+                    processReqDownload(cfd, atoi(id),pass);
+                } else{
+                    char* id = strtok(buffer+11, " ");
+                    char* pass = "****";
+                    processReqDownload(cfd, atoi(id),pass);
+                }
             }
             else{
                 SendData(cfd,invalidCmd, strlen(invalidCmd));
@@ -359,7 +424,7 @@ int main() {
                 int oldSize = clients == NULL ? 0 : sizeof(clients);
                 clients = (client*) realloc(clients,oldSize + sizeof(client));
                 clients[countClient].cfd = cfd;
-                clients[countClient].caddr = caddr;
+                clients[countClient].addr = caddr.sin_addr.s_addr;
                 clients[countClient].port = atoi(port);
                 countClient++;
                 free(port);port=NULL;

@@ -16,6 +16,14 @@ typedef struct sockaddr SOCKADDR;
 
 int P2Pfd = -1; //socket P2P
 int checkPORT = 0;
+int countFile = 0;
+char* dirDownload = "";
+
+typedef struct _file{
+    char name[200]; //Đường dẫn đầy đủ của file
+    char pass[50]; //Mật khẩu của file
+} file;
+file *files = NULL;
 
 int SendData(int fd, char* data, int len)
 {
@@ -41,8 +49,122 @@ int RecvData(int fd, char* data, int maxlen)
     } while (tmp >= 0 && received < maxlen && tmp == blocksize);
     return received;
 }
-void* FileShareThread(void* arg){
+void processSendFile(char* filename, int addr, int port){
+    int sendFile_socket = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+    SOCKADDR_IN saddr;
+    saddr.sin_family = AF_INET;
+    saddr.sin_port = htons(port);
+    saddr.sin_addr.s_addr = addr;
+    int error = connect(sendFile_socket, (SOCKADDR*)&saddr, sizeof(saddr));
+    if(error!=-1){
+        FILE* f = fopen(filename, "rb");
+        if (f != NULL)
+        {
+            fseek(f, 0, SEEK_END);
+            int size = ftell(f);
+            fseek(f, 0, SEEK_SET);
+            char* data = (char*)calloc(size, 1);
+            fread(data, 1, size, f);
+            fclose(f);
 
+            char header[1024];
+            char* alias = (char*)calloc(1024, 1);
+            if(strrchr(filename,'/') != NULL){
+                strcpy(alias,strrchr(filename,'/')+1);
+            } else{
+                strcpy(alias,filename);
+            }
+            sprintf(header, "FILE %s %d", alias, size);
+
+            send(sendFile_socket, header, strlen(header), 0);
+            int sent = 0;
+            while (sent < size)
+            {
+                int tmp = send(sendFile_socket, data + sent, size - sent, 0);
+                sent += tmp;
+            }
+            free(data);
+            data = NULL;
+        }
+    }
+}
+void processRecvFile(int cfd, char* filename, int size){
+    int countFileSameName = 0;
+    char* nameFile = (char*) calloc(1024,1);
+    strcpy(nameFile,filename);
+
+    while (access(nameFile, F_OK) == 0) {
+        // file tồn tại
+        countFileSameName++;
+        sprintf(nameFile,"%s_(%d)",filename,countFileSameName);
+    }
+
+    FILE* f = fopen(nameFile,"w");
+    char* data = (char *) calloc(size,1);
+    int receive = 0;
+    while (receive < size)
+    {
+        int tmp = recv(cfd, data + receive, size - receive, 0);
+        receive += tmp;
+    }
+    fwrite(data,1,size,f);
+    fclose(f);
+    free(data);data=NULL;
+}
+void* FileShareThread(void* arg){
+    int cfd = *((int*)arg);
+    free(arg);
+    arg = NULL;
+
+    char buffer[1024] = { 0 };
+    int r = RecvData(cfd,buffer, sizeof(buffer));
+    if (r > 0){
+        /* Format các gói tin gửi đến
+         * Yêu cầu truyền file đến địa chỉ: SENDTO <filename> <pass> <addr> <port>
+         * Header của file gửi đến: FILE <filename> <size>
+         */
+        if(strncmp(buffer,"SENDTO",6)==0){
+            //TODO: kiểm tra lại hàm strtok (https://www.educative.io/answers/splitting-a-string-using-strtok-in-c)
+
+            char* filename = (char*) calloc(200,1);
+            char* pass = (char*) calloc(50,1);
+            char* addr = (char*) calloc(100,1);
+            char* port = (char*) calloc(100,1);
+            strtok(buffer+6+1, " ");
+            sprintf(filename,"%s",buffer+6+1);
+            strtok(buffer+6+1+ strlen(filename)+1, " ");
+            sprintf(pass,"%s",buffer+6+1+ strlen(filename)+1);
+            strtok(buffer+6+1+ strlen(filename)+1+ strlen(pass)+1, " ");
+            sprintf(addr,"%s",buffer+6+1+ strlen(filename)+1+ strlen(pass)+1);
+            strtok(buffer+6+1+ strlen(filename)+1+ strlen(pass)+1+ strlen(addr)+1, " ");
+            sprintf(port,"%s",buffer+6+1+ strlen(filename)+1+ strlen(pass)+1+ strlen(addr)+1);
+            int check = 0;
+            for(int i=0;i<countFile;i++){
+                if(strcmp(files[i].name,filename) == 0 && strcmp(files[i].pass,pass) == 0){
+                    check = 1;
+                    break;
+                }
+            }
+            if(check==1){
+                processSendFile(filename,atoi(addr),atoi(port));
+            }
+            free(filename);filename=NULL;
+            free(pass);pass=NULL;
+            free(addr);addr=NULL;
+            free(port);port=NULL;
+        } else if(strncmp(buffer,"FILE",4)==0){
+            char* filename = (char*) calloc(200,1);
+            char* size = (char*) calloc(50,1);
+            strtok(buffer+4+1, " ");
+            sprintf(filename,"%s",buffer+4+1);
+            strtok(buffer+4+1+ strlen(filename)+1, " ");
+            sprintf(size,"%s",buffer+4+1+ strlen(filename)+1);
+            processRecvFile(cfd,filename, atoi(size));
+            free(filename);filename=NULL;
+            free(size);size=NULL;
+        }
+    }
+    close(cfd);
 }
 void* P2PThread(void* arg){
     char* port = (char*)arg;
@@ -61,7 +183,7 @@ void* P2PThread(void* arg){
             int cfd = accept(p2p_socket, (SOCKADDR*)&caddr, &clen);
             if (cfd != INVALID_SOCKET)
             {
-                //TODO: tạo luồng kết nối để truyền file
+                //TODO: tạo luồng để nhận yêu cầu truyền file từ server hoặc nhận file gửi đến từ client khác
                 pthread_t tid = 0;
                 int* arg = (int*)calloc(1, sizeof(int));
                 *arg = cfd;
@@ -75,6 +197,7 @@ void* P2PThread(void* arg){
     close(p2p_socket);
 }
 int main(int argc, char *argv[]){
+    //TODO: thiết kế luồng nhận file kiểm tra xem file truyền đến có được yêu cầu hay không
     if(argc != 2){
         printf("Usage: ./FSClient <port>\n");
         return 1;
@@ -99,7 +222,6 @@ int main(int argc, char *argv[]){
     if (error != -1)
     {
         SendData(cfd, argv[1], strlen(argv[1]));
-
         while (0 == 0){
             char buffer[1000] = { 0 };
             RecvData(cfd, buffer, sizeof(buffer));
@@ -117,13 +239,27 @@ int main(int argc, char *argv[]){
                 break;
             } else if (strncmp(command, "fs share", 8) == 0)
             {
-                FILE* f = fopen(command+9, "rb");
-                if(f == NULL){
+                char* filename = NULL;
+                char* pass = NULL;
+                if(strstr(command,"-p")!=NULL){
+                    filename = strtok(command+8, " ");
+                    pass = strtok(command+8+1+ strlen(filename)+3, " ");
+                } else{
+                    filename = strtok(command+8, " ");
+                    pass = "****";
+                }
+
+                if (access(filename, F_OK) == 0) {
+                    // file exists
+                } else {
                     printf("File không tồn tại! Hãy kiểm tra lại đường dẫn\n");
                     goto NHAPLENH;
-                } else{
-                    fclose(f);
                 }
+                int oldSize = sizeof(file)*countFile;
+                files = (file*) realloc(files,oldSize + sizeof(file));
+                strcpy(files[countFile].name,filename);
+                strcpy(files[countFile].pass,pass);
+                countFile++;
             } else if(strncmp(command, "fs test", 7) == 0){
                 FILE* f = fopen("/home/monleak/Code/P2P-FileShare/TestCommand/test1","r");
                 if(f!=NULL){

@@ -5,3 +5,8 @@ fs share dwafmwaklwa
 fs list
 (DONE)
 -----------------
+(malloc(): invalid size (unsorted))
+fs test
+connect thêm 1 client mới
+(DONE)
+-----------------
