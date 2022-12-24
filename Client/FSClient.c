@@ -25,7 +25,7 @@ typedef struct _file{
 } file;
 file *files = NULL;
 
-int SendData(int fd, char* data, int len)
+int SendData(int fd, char* data, long int len)
 {
     int sent = 0;
     int tmp = 0;
@@ -37,7 +37,7 @@ int SendData(int fd, char* data, int len)
     return sent;
 }
 
-int RecvData(int fd, char* data, int maxlen)
+int RecvData(int fd, char* data, long int maxlen)
 {
     int received = 0;
     int blocksize = 1024;
@@ -74,21 +74,26 @@ void processSendFile(char* filename, int addr, int port){
             } else{
                 strcpy(alias,filename);
             }
-            sprintf(header, "FILE %s %d", alias, size);
+            sprintf(header, "FILE %s %d\n", alias, size);
+            SendData(sendFile_socket,header, strlen(header));
+//            RecvData(sendFile_socket,header,sizeof(header));
 
-            send(sendFile_socket, header, strlen(header), 0);
-            int sent = 0;
-            while (sent < size)
-            {
-                int tmp = send(sendFile_socket, data + sent, size - sent, 0);
-                sent += tmp;
-            }
+            SendData(sendFile_socket,data, strlen(data));
             free(data);
             data = NULL;
         }
     }
 }
-void processRecvFile(int cfd, char* filename, int size){
+void processRecvFile(int cfd, char* buffer){
+    char* filename = (char*) calloc(200,1);
+    char* size = (char*) calloc(50,1);
+    strtok(buffer+4+1, " ");
+    sprintf(filename,"%s",buffer+4+1);
+    strtok(buffer+4+1+ strlen(filename)+1, "\n");
+    sprintf(size,"%s",buffer+4+1+ strlen(filename)+1);
+
+    char* data = (char *) calloc(atoi(size),1);
+    sprintf(data,"%s",buffer+4+1+ strlen(filename)+1+ strlen(size)+1);
     int countFileSameName = 0;
     char* nameFile = (char*) calloc(1024,1);
     strcpy(nameFile,filename);
@@ -100,15 +105,12 @@ void processRecvFile(int cfd, char* filename, int size){
     }
 
     FILE* f = fopen(nameFile,"w");
-    char* data = (char *) calloc(size,1);
-    int receive = 0;
-    while (receive < size)
-    {
-        int tmp = recv(cfd, data + receive, size - receive, 0);
-        receive += tmp;
+    if(f!=NULL){
+        fputs(data,f);
+        fclose(f);
     }
-    fwrite(data,1,size,f);
-    fclose(f);
+    free(filename);filename=NULL;
+    free(size);size=NULL;
     free(data);data=NULL;
 }
 void* FileShareThread(void* arg){
@@ -153,15 +155,7 @@ void* FileShareThread(void* arg){
             free(addr);addr=NULL;
             free(port);port=NULL;
         } else if(strncmp(buffer,"FILE",4)==0){
-            char* filename = (char*) calloc(200,1);
-            char* size = (char*) calloc(50,1);
-            strtok(buffer+4+1, " ");
-            sprintf(filename,"%s",buffer+4+1);
-            strtok(buffer+4+1+ strlen(filename)+1, " ");
-            sprintf(size,"%s",buffer+4+1+ strlen(filename)+1);
-            processRecvFile(cfd,filename, atoi(size));
-            free(filename);filename=NULL;
-            free(size);size=NULL;
+            processRecvFile(cfd,buffer);
         }
     }
     close(cfd);
