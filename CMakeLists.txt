@@ -4,6 +4,6 @@ project(P2P_FileShare C)
 set(CMAKE_C_STANDARD 11)
 
 add_executable(P2P_FileShare
-        Server/FSserver.c
-#        Client/FSClient.c
+#        Server/FSserver.c
+        Client/FSClient.c
         )

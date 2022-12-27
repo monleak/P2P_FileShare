@@ -104,7 +104,14 @@ void processSendFile(char* filename, int addr, int port,char* randCode){
 
             RecvData(sendFile_socket,header, sizeof(header));
 
-            SendData(sendFile_socket,data, strlen(data));
+//            SendData(sendFile_socket,data, strlen(data));
+            int sent = 0;
+            while (sent < size)
+            {
+                int tmp = send(sendFile_socket, data + sent, size - sent, 0);
+                sent += tmp;
+            }
+
             free(data);data = NULL;
             free(header);header=NULL;
             free(alias);alias=NULL;
@@ -112,8 +119,6 @@ void processSendFile(char* filename, int addr, int port,char* randCode){
     }
 }
 void processRecvFile(int cfd, char* filename, unsigned long size){
-    char* data = (char *) calloc(size,1);
-    RecvData(cfd,data, sizeof(data));
     int countFileSameName = 0;
     char* nameFile = (char*) calloc(1024,1);
     strcpy(nameFile,filename);
@@ -123,11 +128,26 @@ void processRecvFile(int cfd, char* filename, unsigned long size){
         countFileSameName++;
         sprintf(nameFile,"%s_(%d)",filename,countFileSameName);
     }
-
-    FILE* f = fopen(nameFile,"w");
-    if(f!=NULL){
-        fputs(data,f);
-        fclose(f);
+    char buffer[1024] = { 0 };
+    char* data = (char*)calloc(size, 1);
+    int post_size = 0;
+    int r=0;
+    while (post_size < size)
+    {
+        r = recv(cfd, buffer, sizeof(buffer), 0);
+        if (r > 0)
+        {
+            memcpy(data + post_size, buffer, r);
+            post_size += r;
+        }else
+            break;
+    }
+    if(post_size == size){
+        FILE* f = fopen(nameFile,"wb");
+        if(f!=NULL){
+            fwrite(data,1,size,f);
+            fclose(f);
+        }
     }
     free(data);data=NULL;
     free(nameFile);nameFile=NULL;
@@ -139,7 +159,7 @@ void* FileShareThread(void* arg){
 
     char buffer[1024] = { 0 };
     int r = RecvData(cfd,buffer, sizeof(buffer));
-    SendData(cfd,buffer, strlen(buffer));
+    SendData(cfd,".", strlen("."));
     if (r > 0){
         /* Format các gói tin gửi đến
          * Yêu cầu truyền file đến địa chỉ: SENDTO <filename> <pass> <addr> <port> <randCode>
@@ -232,7 +252,6 @@ void* P2PThread(void* arg){
             int cfd = accept(p2p_socket, (SOCKADDR*)&caddr, &clen);
             if (cfd != INVALID_SOCKET)
             {
-                //TODO: tạo luồng để nhận yêu cầu truyền file từ server hoặc nhận file gửi đến từ client khác
                 pthread_t tid = 0;
                 int* arg = (int*)calloc(1, sizeof(int));
                 *arg = cfd;
@@ -246,7 +265,6 @@ void* P2PThread(void* arg){
     close(p2p_socket);
 }
 int main(int argc, char *argv[]){
-    //TODO: thiết kế luồng nhận file kiểm tra xem file truyền đến có được yêu cầu hay không
     if(argc != 2){
         printf("Usage: ./FSClient <port>\n");
         return 1;

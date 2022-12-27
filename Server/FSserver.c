@@ -182,7 +182,6 @@ void processShareFile(int cfd,char* filename,char* pass){
     alias = NULL;
 }
 void processReqDownload(int cfd, int id,char* pass, char* randCode){
-    //TODO:
     if(id > countFile-1){
         SendData(cfd,"ID File yêu cầu download không tồn tại!", strlen("ID File yêu cầu download không tồn tại!"));
         goto END;
