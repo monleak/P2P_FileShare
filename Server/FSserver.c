@@ -12,6 +12,11 @@
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <pthread.h>
+#include <dirent.h>
+#include <errno.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <unistd.h>
 
 #define MAX_CONN_NUM 1024
 #define INVALID_SOCKET -1
@@ -182,6 +187,7 @@ void processShareFile(int cfd,char* filename,char* pass){
     alias = NULL;
 }
 void processReqDownload(int cfd, int id,char* pass, char* randCode){
+    //Kiểm tra tính hợp lệ của yêu cầu gửi đến.
     if(id > countFile-1){
         SendData(cfd,"ID File yêu cầu download không tồn tại!", strlen("ID File yêu cầu download không tồn tại!"));
         goto END;
@@ -414,15 +420,61 @@ int main() {
     saddr.sin_port = htons(8889);
     saddr.sin_addr.s_addr = inet_addr("127.0.0.1");
 
+    //Tạo thư mục chưa các file log ghi lại hoạt động của server
+    DIR* dir = opendir("Log");
+    if (dir) {
+        /* Directory exists. */
+        closedir(dir);
+    } else if (ENOENT == errno) {
+        int check;
+        char* dirname = "Log";
+
+        check = mkdir(dirname,0777);
+
+        // check if directory is created or not
+        if (!check)
+            printf("Đã tạo thư mục Log\n");
+        else {
+            printf("Không thể tạo thư mục log\n");
+            exit(1);
+        }
+    } else {
+        /* opendir() failed for some other reason. */
+        printf("opendir() failed for some other reason.\n");
+    }
+    //Tạo file log ghi lại hoạt động.
+    char filePath[30];
+    time_t rawtime;
+    struct tm * timeinfo;
+    time(&rawtime);
+    timeinfo = localtime(&rawtime);
+    sprintf(filePath, "Log/%d-%d-%d.log", timeinfo->tm_mday,
+            timeinfo->tm_mon + 1, timeinfo->tm_year + 1900);
+    FILE* flog = fopen(filePath, "a"); // a+ (create + append) option will allow appending which is useful in a log file
+    if (flog == NULL) {
+        printf("Không mở được file log\n");
+        exit(1);
+    }else{
+        printf("Mở thành công file log %s\n",filePath);
+    }
     if (bind(sfd, (SOCKADDR*)&saddr, sizeof(saddr)) == 0)
     {
         listen(sfd, 10);
+
         printf("Waiting for clients ..\n\n");
+        time(&rawtime);
+        timeinfo = localtime(&rawtime);
+        fprintf(flog, "[%d:%d:%d] Waiting for clients ..\n",timeinfo->tm_hour, timeinfo->tm_min, timeinfo->tm_sec);
+        fflush(flog);
         while (0 == 0){
             int cfd = accept(sfd, (SOCKADDR*)&caddr, &clen);
             if (cfd != INVALID_SOCKET)
             {
                 printf("New client connected! (ID: %d)\n",cfd);
+                time(&rawtime);
+                timeinfo = localtime(&rawtime);
+                fprintf(flog, "[%d:%d:%d] New client connected! (ID: %d)\n",timeinfo->tm_hour, timeinfo->tm_min, timeinfo->tm_sec,cfd);
+                fflush(flog);
                 char* port = (char *) calloc(1024,1);
                 RecvData(cfd,port, sizeof(port));
 
@@ -449,6 +501,7 @@ int main() {
 
     pthread_mutex_destroy(mutex);
     free(mutex);
+    fclose(flog);
     close(sfd);
     return 0;
 }
