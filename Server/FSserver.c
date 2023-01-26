@@ -31,6 +31,7 @@ char* errorMess= "Something is wrong! Please contact admin.\n";
 char* invalidCmd = "INVALID COMMAND!\n";
 
 pthread_mutex_t* mutex = NULL;
+FILE* flog = NULL;
 
 typedef struct _file{
     int id; //cfd client sở hữu
@@ -298,11 +299,21 @@ void* ClientThread(void* arg)
     while (1){
         char buffer[1024] = { 0 };
         int r = RecvData(cfd,buffer, sizeof(buffer));
+
+        time_t rawtime;
+        struct tm * timeinfo;
+
         if (r > 0){
             while(buffer[strlen(buffer)-1] == '\n' || buffer[strlen(buffer)-1] == '\r'){
                 buffer[strlen(buffer)-1] = 0;
             }
             printf("Command from Client %d: %s\n",cfd,buffer);
+
+            time(&rawtime);
+            timeinfo = localtime(&rawtime);
+            fprintf(flog, "[%d:%d:%d] Command from Client %d: %s\n",timeinfo->tm_hour, timeinfo->tm_min, timeinfo->tm_sec,cfd,buffer);
+            fflush(flog);
+
             if(strncmp(buffer,"fs",2) != 0){
                 SendData(cfd,invalidCmd, strlen(invalidCmd));
                 continue;
@@ -353,6 +364,12 @@ void* ClientThread(void* arg)
             }
         }else{
             printf("A client has disconnected (ID: %d)\n",cfd);
+
+            time(&rawtime);
+            timeinfo = localtime(&rawtime);
+            fprintf(flog, "[%d:%d:%d] A client has disconnected (ID: %d)\n",timeinfo->tm_hour, timeinfo->tm_min, timeinfo->tm_sec,cfd);
+            fflush(flog);
+
             pthread_mutex_lock(mutex);
             if(files!=NULL){ //Xóa các file share của client vừa disconnect
                 for(int i=0;i<countFile;i++){
@@ -396,7 +413,6 @@ void* ClientThread(void* arg)
 }
 
 int main() {
-    //TODO: Thêm log để ghi loại hoạt động của server
     mutex = (pthread_mutex_t*)calloc(1, sizeof(pthread_mutex_t));
     pthread_mutex_init(mutex, NULL);
 
@@ -450,7 +466,7 @@ int main() {
     timeinfo = localtime(&rawtime);
     sprintf(filePath, "Log/%d-%d-%d.log", timeinfo->tm_mday,
             timeinfo->tm_mon + 1, timeinfo->tm_year + 1900);
-    FILE* flog = fopen(filePath, "a"); // a+ (create + append) option will allow appending which is useful in a log file
+    flog = fopen(filePath, "a"); // a+ (create + append) option will allow appending which is useful in a log file
     if (flog == NULL) {
         printf("Không mở được file log\n");
         exit(1);

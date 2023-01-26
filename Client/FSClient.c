@@ -291,8 +291,10 @@ int main(int argc, char *argv[]){
         SendData(cfd, argv[1], strlen(argv[1]));
         while (0 == 0){
             char buffer[1000] = { 0 };
+            
             RecvData(cfd, buffer, sizeof(buffer));
             printf("%s\n", buffer);
+
             NHAPLENH:
             printf(">");
             char command[1000] = { 0 };
