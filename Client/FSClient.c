@@ -9,6 +9,7 @@
 #include <unistd.h>
 #include <stdlib.h>
 #include <pthread.h>
+#include <sys/stat.h>
 
 #define INVALID_SOCKET -1
 typedef struct sockaddr_in SOCKADDR_IN;
@@ -20,11 +21,12 @@ int countFile = 0;
 int countReq = 0;
 char* dirDownload = "";
 
+
 typedef struct _file{
     char name[200]; //Đường dẫn đầy đủ của file
     char pass[50]; //Mật khẩu của file
 } file;
-file *files = NULL;
+file *files = NULL; //Danh sách các file được chia sẻ
 
 typedef struct _reqDownload{
     char code[20]; //mã xác minh
@@ -151,6 +153,101 @@ void processRecvFile(int cfd, char* filename, unsigned long size){
     }
     free(data);data=NULL;
     free(nameFile);nameFile=NULL;
+}
+
+void processShareFile(int cfd, char* rootPath, char* pass){
+    struct stat s;
+    if( stat(rootPath,&s) == 0 ){
+        if( s.st_mode & S_IFDIR ){
+            //là thư mục
+            struct dirent** output = NULL;
+            int n = scandir(rootPath, &output, NULL, NULL);
+            if (n > 0)
+            {
+                for1:
+                for (int i = 0;i < n;i++){
+                    if (output[i]->d_type == DT_REG){
+                        //Tập tin thông thường
+                        char* pathOfFile = (char*) calloc(1024,1);
+                        if(rootPath[strlen(rootPath)-1] == '/'){
+                            sprintf(pathOfFile,"%s%s",rootPath,output[i]->d_name);
+                        }else{
+                            sprintf(pathOfFile,"%s/%s",rootPath,output[i]->d_name);
+                        }
+//                        printf("Đây là 1 file %s\n",pathOfFile);
+                        for(int i=0;i<countFile;i++){ //check xem đã từng share file này chưa
+                            if(strcmp(files[i].name,pathOfFile)==0){
+                                printf("Bạn đã share file này rồi: %s\n",pathOfFile);
+                                goto ENDIF;
+                            }
+                        }
+
+                        unsigned long oldSize = sizeof(file)*countFile < sizeof(files) ? sizeof(files) : sizeof(file)*countFile;
+                        files = (file*) realloc(files,oldSize + sizeof(file));
+                        strcpy(files[countFile].name,pathOfFile);
+                        strcpy(files[countFile].pass,pass);
+                        countFile++;
+
+                        char* request = (char*) calloc(1024,1);
+                        sprintf(request,"fs share %s -p %s",pathOfFile,pass);
+                        SendData(cfd,request, strlen(request));
+                        RecvData(cfd,request,sizeof(request));
+                        free(pathOfFile);
+                        free(request);
+
+                        ENDIF:
+                    }else if (output[i]->d_type == DT_DIR){
+                        if(strncmp(output[i]->d_name,".",1)==0){
+                            continue;
+                        }
+                        //Thư mục
+                        char* pathOfDir = (char*) calloc(1024,1);
+                        if(rootPath[strlen(rootPath)-1] == '/'){
+                            sprintf(pathOfDir,"%s%s",rootPath,output[i]->d_name);
+                        }else{
+                            sprintf(pathOfDir,"%s/%s",rootPath,output[i]->d_name);
+                        }
+                        processShareFile(cfd,pathOfDir,pass);
+                        free(pathOfDir);
+                    }
+                    free(output[i]);
+                }
+            }else{
+                //Thư mục trống
+            }
+            free(output);
+        }
+        else if( s.st_mode & S_IFREG ){
+            //it's a file
+//            printf("Đây là 1 file %s\n",rootPath);
+
+            for(int i=0;i<countFile;i++){ //check xem đã từng share file này chưa
+                if(strcmp(files[i].name,rootPath)==0){
+                    printf("Bạn đã share file này rồi: %s\n",rootPath);
+                    goto END;
+                }
+            }
+            unsigned long oldSize = sizeof(file)*countFile < sizeof(files) ? sizeof(files) : sizeof(file)*countFile;
+            files = (file*) realloc(files,oldSize + sizeof(file));
+            strcpy(files[countFile].name,rootPath);
+            strcpy(files[countFile].pass,pass);
+            countFile++;
+
+            char* request = (char*) calloc(1024,1);
+            sprintf(request,"fs share %s -p %s",rootPath,pass);
+            SendData(cfd,request, strlen(request));
+            RecvData(cfd,request,sizeof(request));
+            free(request);
+        }else{
+            //something else
+            printf("Có lỗi gì đó đã xảy ra: %s\n",rootPath);
+        }
+    }
+    else{
+        //error
+        printf("Có lỗi xảy ra khi cố chia sẻ file tại đường dẫn này: %s\n",rootPath);
+    }
+    END:
 }
 void* FileShareThread(void* arg){
     int cfd = *((int*)arg);
@@ -279,7 +376,6 @@ int main(int argc, char *argv[]){
         sleep(1);
     }
 
-    //TODO: Thêm share tất cả file trong thư mục
     int cfd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
     SOCKADDR_IN saddr;
     saddr.sin_family = AF_INET;
@@ -291,7 +387,8 @@ int main(int argc, char *argv[]){
         SendData(cfd, argv[1], strlen(argv[1]));
         while (0 == 0){
             char buffer[1000] = { 0 };
-            
+
+            //TODO: Fix lỗi khi yêu cầu gửi đến quá dài vượt qua giới hạn của buffer (Tạm thời giới hạn độ dài gửi khi sử dụng fs find)
             RecvData(cfd, buffer, sizeof(buffer));
             printf("%s\n", buffer);
 
@@ -319,19 +416,9 @@ int main(int argc, char *argv[]){
                     filename = strtok(cloneCommand+8, " ");
                     pass = "****";
                 }
-
-                if (access(filename, F_OK) == 0) {
-                    // file exists
-                } else {
-                    printf("File không tồn tại! Hãy kiểm tra lại đường dẫn\n");
-                    goto NHAPLENH;
-                }
-                unsigned long oldSize = sizeof(file)*countFile;
-                files = (file*) realloc(files,oldSize + sizeof(file));
-                strcpy(files[countFile].name,filename);
-                strcpy(files[countFile].pass,pass);
-                countFile++;
+                processShareFile(cfd,filename,pass);
                 free(cloneCommand);cloneCommand=NULL;
+                goto NHAPLENH;
             } else if(strncmp(command, "fs test", 7) == 0){
                 FILE* f = fopen("/home/monleak/Code/P2P-FileShare/TestCommand/test1","r");
                 if(f!=NULL){

@@ -274,7 +274,7 @@ void processFindFile(int cfd, char* filename){
     SENDDATA:
     pthread_mutex_unlock(mutex);
     if(listFile != NULL && strlen(listFile)>0){
-        SendData(cfd,listFile, strlen(listFile));
+        SendData(cfd,listFile, strlen(listFile) <= 1024 ? strlen(listFile) : 1024);
         free(listFile);
         listFile=NULL;
     }else{
