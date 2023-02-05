@@ -146,7 +146,7 @@ void processRecvFile(int cfd, char* filename, unsigned long size){
     }
     if(post_size == size){
         char* pathFile = (char*) calloc(1024,1);
-        if(dirDownload != NULL){
+        if(strlen(dirDownload)!=0){
             if(dirDownload[strlen(dirDownload)-1] == '/'){
                 sprintf(pathFile,"%s%s",dirDownload,filename);
             }else{
@@ -160,6 +160,7 @@ void processRecvFile(int cfd, char* filename, unsigned long size){
             fwrite(data,1,size,f);
             fclose(f);
         }
+        free(pathFile);
     }
     free(data);data=NULL;
     free(nameFile);nameFile=NULL;
