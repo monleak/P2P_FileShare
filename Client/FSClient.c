@@ -410,7 +410,9 @@ int main(int argc, char *argv[]){
             while(command[strlen(command)-1] == '\n' || command[strlen(command)-1] == '\r'){
                 command[strlen(command)-1] = 0;
             }
-            if (strncmp(command, "fs quit", 7) == 0)
+            if(strlen(command)==0){
+                goto NHAPLENH;
+            }else if (strncmp(command, "fs quit", 7) == 0)
             {
                 printf("Disconnected!\n");
                 break;
