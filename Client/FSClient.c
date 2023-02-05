@@ -19,7 +19,7 @@ int P2Pfd = -1; //socket P2P
 int checkPORT = 0;
 int countFile = 0;
 int countReq = 0;
-char* dirDownload = "";
+char* dirDownload = NULL; //Đường dẫn tới thư mục chứa file download
 
 
 typedef struct _file{
@@ -145,7 +145,17 @@ void processRecvFile(int cfd, char* filename, unsigned long size){
             break;
     }
     if(post_size == size){
-        FILE* f = fopen(nameFile,"wb");
+        char* pathFile = (char*) calloc(1024,1);
+        if(dirDownload != NULL){
+            if(dirDownload[strlen(dirDownload)-1] == '/'){
+                sprintf(pathFile,"%s%s",dirDownload,filename);
+            }else{
+                sprintf(pathFile,"%s/%s",dirDownload,filename);
+            }
+        } else{
+            strcpy(pathFile,filename);
+        }
+        FILE* f = fopen(pathFile,"wb");
         if(f!=NULL){
             fwrite(data,1,size,f);
             fclose(f);
@@ -366,6 +376,7 @@ int main(int argc, char *argv[]){
         printf("Usage: ./FSClient <port>\n");
         return 1;
     }
+    dirDownload = (char*) calloc(1024,1);
     //Tạo 1 luồng để nhận kết nối TCP
     pthread_t tid = 0;
     char* arg = argv[1];
@@ -432,6 +443,28 @@ int main(int argc, char *argv[]){
                     fclose(f);
                     goto NHAPLENH;
                 }
+            } else if(strncmp(command, "fs downloadLocation", 19) == 0){
+                char* downloadLocation = strtok(command+19, " ");
+
+                struct stat s;
+                if( stat(downloadLocation,&s) == 0 ){
+                    if( s.st_mode & S_IFDIR ){
+                        //là thư mục
+                        strcpy(dirDownload,downloadLocation);
+                        printf("Đặt thành công đường dẫn tới file download: %s\n",dirDownload);
+                    }else if( s.st_mode & S_IFREG ){
+                        //it's a file
+                        printf("Đường dẫn này không trỏ đến 1 thư mục: %s\n",downloadLocation);
+                    }else{
+                        //something else
+                        printf("Có lỗi gì đó đã xảy ra: %s\n",downloadLocation);
+                    }
+                }else{
+                    //error
+                    printf("Đường dẫn không hợp lệ: %s\n",downloadLocation);
+                }
+
+                goto NHAPLENH;
             } else if(strncmp(command, "fs download", 11) == 0){
                 while (command[strlen(command)-1] == '\n'){
                     command[strlen(command)-1] = 0;
@@ -471,5 +504,6 @@ int main(int argc, char *argv[]){
     } else{
         printf("Không thể kết nối tới P2P Server\n");
     }
+    free(dirDownload);
     return 0;
 }

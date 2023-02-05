@@ -8,6 +8,8 @@ help                        Hiển thị hướng dẫn
 list [-p <page>]            Lấy danh sách các file đang được share
 find <filename>             Tìm kiếm file theo tên
 
+downloadLocation <path>     Đặt đường dẫn của thư mục chứa file
+                            download
 download <ID> [-p <pass>]   Yêu cầu download file
 share <path> [-p <pass>]    Share file với đường dẫn
                             Không được đặt pass là "****"
